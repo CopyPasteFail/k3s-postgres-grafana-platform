@@ -45,8 +45,7 @@ def fetch_all_todos() -> list[TodoRead]:
             return [TodoRead(**row) for row in cur.fetchall()]
 
 
-@app.get("/healthz")
-def healthz() -> dict[str, str]:
+def check_database() -> None:
     try:
         with psycopg.connect(**db_settings()) as conn:
             with conn.cursor() as cur:
@@ -54,6 +53,22 @@ def healthz() -> dict[str, str]:
                 cur.fetchone()
     except psycopg.Error as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="database unavailable") from exc
+
+
+@app.get("/livez")
+def livez() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+def readyz() -> dict[str, str]:
+    check_database()
+    return {"status": "ok"}
+
+
+@app.get("/healthz")
+def healthz() -> dict[str, str]:
+    check_database()
     return {"status": "ok"}
 
 
@@ -106,5 +121,5 @@ def root() -> dict[str, object]:
     return {
         "service": "todo-api",
         "status": "ok",
-        "endpoints": ["/healthz", "/todos", "/todos/{id}/complete"],
+        "endpoints": ["/livez", "/readyz", "/healthz", "/todos", "/todos/{id}/complete"],
     }

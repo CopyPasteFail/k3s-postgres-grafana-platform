@@ -1,4 +1,5 @@
-{{- if and .Values.loki.enabled .Values.loki.ruler.enabled }}
+{{- $slowQueryAlert := .Values.monitoring.slowQueryAlert -}}
+{{- if and .Values.loki.enabled .Values.loki.ruler.enabled $slowQueryAlert.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -15,17 +16,22 @@ data:
         interval: 1m
         rules:
           - alert: PostgreSQLSlowQueryBurst
+            # Label contract:
+            # - Alloy maps the pod namespace to the Loki label namespace
+            # - Alloy maps app.kubernetes.io/name=postgresql to app="postgresql"
+            # - Alloy maps the PostgreSQL container name to container="postgresql"
+            # This chart relies on those stable labels from the Bitnami PostgreSQL StatefulSet.
             expr: |
               sum(
                 count_over_time(
-                  {namespace="{{ .Release.Namespace }}", app="postgresql", container="postgresql"} |= "duration:" |= "statement:" [{{ .Values.loki.slowQueryAlert.window }}]
+                  {namespace="{{ .Release.Namespace }}", app="postgresql", container="postgresql"} |= "duration:" |= "statement:" [{{ $slowQueryAlert.window }}]
                 )
-              ) > {{ .Values.loki.slowQueryAlert.threshold }}
-            for: {{ .Values.loki.slowQueryAlert.for }}
+              ) > {{ $slowQueryAlert.threshold }}
+            for: {{ $slowQueryAlert.for }}
             labels:
               severity: warning
               service: postgresql
             annotations:
               summary: PostgreSQL logged repeated slow SQL statements
-              description: More than {{ .Values.loki.slowQueryAlert.threshold }} SQL statements slower than one second were logged within {{ .Values.loki.slowQueryAlert.window }}.
+              description: More than {{ $slowQueryAlert.threshold }} SQL statements slower than one second were logged within {{ $slowQueryAlert.window }}.
 {{- end }}

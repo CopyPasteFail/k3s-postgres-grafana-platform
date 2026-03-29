@@ -1,8 +1,7 @@
 {{- /*
-Validate only the shared DB credential path that crosses chart boundaries:
-- the FastAPI app reads the PostgreSQL application-user password from the PostgreSQL secret
-- so the parent chart requires an explicit password source for that app-user path
+Validation for chart-facing values now lives in values.schema.json so Helm can fail
+before template rendering with clearer type and required-value errors.
+
+Keep this template reserved for chart-local checks that cannot be expressed cleanly
+in JSON schema without causing duplicate or noisy failures.
 */ -}}
-{{- if and .Values.postgresql.enabled (empty .Values.postgresql.auth.existingSecret) (empty .Values.postgresql.auth.password) -}}
-{{- fail "platform chart validation failed: set postgresql.auth.password or postgresql.auth.existingSecret because the app depends on the PostgreSQL application-user credential path." -}}
-{{- end -}}

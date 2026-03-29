@@ -1,0 +1,334 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "host": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        }
+      }
+    },
+    "app": {
+      "type": "object",
+      "properties": {
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Never",
+                "IfNotPresent",
+                "Always"
+              ]
+            }
+          },
+          "required": [
+            "repository",
+            "tag",
+            "pullPolicy"
+          ]
+        },
+        "service": {
+          "type": "object",
+          "properties": {
+            "port": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "port"
+          ]
+        },
+        "resources": {
+          "type": "object"
+        },
+        "podAnnotations": {
+          "type": "object"
+        },
+        "podLabels": {
+          "type": "object"
+        },
+        "podSecurityContext": {
+          "type": "object"
+        },
+        "securityContext": {
+          "type": "object"
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        },
+        "extraEnv": {
+          "type": "array"
+        },
+        "secrets": {
+          "type": "object",
+          "properties": {
+            "databasePassword": {
+              "type": "string"
+            },
+            "existingSecret": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "image",
+        "service",
+        "resources"
+      ]
+    },
+    "postgresql": {
+      "type": "object",
+      "properties": {
+        "auth": {
+          "type": "object",
+          "properties": {
+            "database": {
+              "type": "string",
+              "minLength": 1
+            },
+            "username": {
+              "type": "string",
+              "minLength": 1
+            },
+            "password": {
+              "type": "string"
+            },
+            "existingSecret": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "database",
+            "username"
+          ]
+        }
+      },
+      "required": [
+        "auth"
+      ]
+    },
+    "monitoring": {
+      "type": "object",
+      "properties": {
+        "slowQueryAlert": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "threshold": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "window": {
+              "type": "string",
+              "pattern": "^[0-9]+(ms|s|m|h|d|w)$"
+            },
+            "for": {
+              "type": "string",
+              "pattern": "^[0-9]+(ms|s|m|h|d|w)$"
+            }
+          },
+          "required": [
+            "enabled",
+            "threshold",
+            "window"
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "ingress": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "ingress": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "host"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "anyOf": [
+        {
+          "required": [
+            "app"
+          ],
+          "properties": {
+            "app": {
+              "type": "object",
+              "required": [
+                "secrets"
+              ],
+              "properties": {
+                "secrets": {
+                  "type": "object",
+                  "required": [
+                    "databasePassword"
+                  ],
+                  "properties": {
+                    "databasePassword": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "required": [
+            "app"
+          ],
+          "properties": {
+            "app": {
+              "type": "object",
+              "required": [
+                "secrets"
+              ],
+              "properties": {
+                "secrets": {
+                  "type": "object",
+                  "required": [
+                    "existingSecret"
+                  ],
+                  "properties": {
+                    "existingSecret": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "key"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "key": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "required": [
+            "postgresql"
+          ],
+          "properties": {
+            "postgresql": {
+              "type": "object",
+              "required": [
+                "auth"
+              ],
+              "properties": {
+                "auth": {
+                  "type": "object",
+                  "required": [
+                    "password"
+                  ],
+                  "properties": {
+                    "password": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "required": [
+            "postgresql"
+          ],
+          "properties": {
+            "postgresql": {
+              "type": "object",
+              "required": [
+                "auth"
+              ],
+              "properties": {
+                "auth": {
+                  "type": "object",
+                  "required": [
+                    "existingSecret"
+                  ],
+                  "properties": {
+                    "existingSecret": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

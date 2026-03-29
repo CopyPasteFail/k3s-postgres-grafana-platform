@@ -17,15 +17,30 @@ spec:
         {{- include "platform.labels" . | nindent 8 }}
         {{- include "platform.selectorLabels" . | nindent 8 }}
         platform.example.io/tier: workload
+        {{- with .Values.app.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.app.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.podSecurityContext }}
+      securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
         - name: app
           image: {{ printf "%s:%s" .Values.app.image.repository .Values.app.image.tag | quote }}
           imagePullPolicy: {{ .Values.app.image.pullPolicy }}
+          {{- with .Values.app.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.app.containerPort }}
@@ -38,22 +53,40 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "platform.postgresql.secretName" . }}
-                  key: {{ include "platform.postgresql.userPasswordKey" . }}
+                  name: {{ include "platform.app.dbPasswordSecretName" . }}
+                  key: {{ include "platform.app.dbPasswordSecretKey" . }}
           {{- with .Values.app.extraEnv }}
           {{- toYaml . | nindent 10 }}
           {{- end }}
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /livez
               port: http
             initialDelaySeconds: 10
             periodSeconds: 20
           resources:
             {{- toYaml .Values.app.resources | nindent 12 }}
+      {{- with .Values.app.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

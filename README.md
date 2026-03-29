@@ -174,9 +174,15 @@ helm upgrade --install platform charts/platform \
 
 ### Credential behavior
 
-- Parent-guarded shared credential: `postgresql.auth.password` or `postgresql.auth.existingSecret` must be set. Helm now fails early if neither is provided because the FastAPI app depends on that PostgreSQL application-user secret path.
+- App DB credential path: set either the shared PostgreSQL credential (`postgresql.auth.password` or `postgresql.auth.existingSecret`) or an explicit app-side source (`app.secrets.databasePassword` or `app.secrets.existingSecret.name` plus `.key`). The app-side override must still match the PostgreSQL application-user password.
 - Not parent-guarded: `postgresql.auth.postgresPassword` and `monitoring.grafana.adminPassword` are passed through to their subcharts. If they are unset, upstream chart behavior applies.
 - Upstream references: [Bitnami PostgreSQL values](https://github.com/bitnami/charts/blob/main/bitnami/postgresql/values.yaml), [kube-prometheus-stack values](https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml), [Grafana chart values](https://github.com/grafana/helm-charts/blob/main/charts/grafana/values.yaml)
+
+## Log label contract for PostgreSQL slow-query alerting
+
+Alloy derives Loki stream labels from Kubernetes pod metadata. In this chart, the slow-query alert assumes PostgreSQL logs land under `{namespace="<release namespace>", app="postgresql", container="postgresql"}`.
+
+That works because Alloy relabels the pod namespace, `app.kubernetes.io/name`, and container name, and the Bitnami PostgreSQL StatefulSet keeps `app.kubernetes.io/name=postgresql` with a primary container named `postgresql`. If you change release-driven naming, pod labels, or the relabeling rules enough that those labels no longer match, update the alert query too.
 
 ## Preflight checks before demo
 

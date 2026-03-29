@@ -63,6 +63,30 @@ Alternatives considered
 Production-hardening follow-up
 - Add automated rendered-manifest validation and chart upgrade checks.
 
+## Explain the chosen `values.yaml` shape by component
+
+Decision
+- Keep `charts/platform/values.yaml` opinionated at the component level, with a neutral base file that encodes the intended platform behavior without turning every upstream knob into local policy.
+
+Rationale
+- For ingress, the values intentionally describe one simple public entrypoint: `enabled: true`, `className: traefik`, `path: /`, and a placeholder `host`. That keeps the chart aligned with k3s defaults and makes it obvious that hostname selection is the main environment-specific input while the parent chart owns the route shape.
+- For the FastAPI app, the chosen values favor a small single-replica service with explicit image coordinates, a `ClusterIP` service on port `80`, modest `100m/128Mi` requests, and only a small override surface for scheduling, security context, and extra environment. The goal is to prove the platform works end to end while keeping the application contract readable and avoiding a chart that mostly mirrors raw pod spec syntax.
+- For PostgreSQL, the values deliberately express a single-node durable demo database: `architecture: standalone`, `local-path` persistence, an `8Gi` volume, bounded resources, shared application credentials, and `extendedConfiguration` that enables `pg_stat_statements` plus `log_min_duration_statement = 1000`. Those choices support the dashboard and slow-query alert path directly, so the values describe the operational story rather than only the database runtime.
+- For monitoring, the values keep kube-prometheus-stack focused on what the platform actually uses: Grafana stays enabled but built-in dashboards are disabled, Prometheus selectors are opened so the stack will see the chart's `ServiceMonitor` resources, and `monitoring.slowQueryAlert` holds the chart-owned alert threshold of `3` events in `10m`. The goal is to keep monitoring values centered on this platform's metric and alerting contract instead of exposing the entire upstream chart surface locally.
+- For Loki, the values intentionally choose `SingleBinary`, `filesystem` storage, one persisted replica, and disabled extras like the gateway, canary, and caches. That combination matches the challenge scope: enough durability and retention to demonstrate logs and alerting, but no distributed storage or horizontally scaled log path to explain.
+- For Alloy, the values keep one deployment replica, light resources, and an explicit relabeling pipeline in `configMap.content` that turns Kubernetes metadata into the exact Loki labels the alert and log queries use. The important design point is that the values file documents the log contract in one place instead of hiding it behind opaque defaults.
+
+Tradeoffs
+- The base values remain intentionally curated rather than exhaustive, so some advanced upstream tuning still requires reading dependency documentation.
+- A few choices, such as `postgresql.image.tag: latest` and small default resource sizes, are practical for this demo but would need stronger pinning and capacity review in a production environment.
+
+Alternatives considered
+- A very thin values file that mostly delegates decisions to upstream defaults.
+- A much larger values file that re-exposes broad subchart configuration for every component.
+
+Production-hardening follow-up
+- Add environment-specific overlays for stricter image pinning, storage classes, retention, resource sizing, and secret sourcing while keeping the base file readable.
+
 ## Choose Bitnami PostgreSQL
 
 Decision
@@ -146,6 +170,32 @@ Alternatives considered
 
 Production-hardening follow-up
 - Revisit controller shape and discovery strategy for multi-node clusters, likely with clustering or a node-local pattern.
+
+## Explain the chosen Kubernetes objects in overview form
+
+Decision
+- Use standard Kubernetes objects that match each component's operational role, and only add parent-owned objects where they carry platform-specific behavior such as schema setup, dashboards, or alert rules.
+
+Rationale
+- The FastAPI application is modeled with a `Deployment`, `Service`, and `Ingress` because it is stateless, fronted by HTTP, and expected to roll forward safely. The `Deployment` owns health probes, app config, and the small scheduling/security override surface; the `Service` gives the app a stable in-cluster address on port `80`; and the `Ingress` makes hostname-based access through Traefik explicit. Together, those objects encode the intended request path more clearly than a looser collection of ad hoc resources.
+- PostgreSQL and single-binary Loki are kept as `StatefulSet`-backed components with persistent volumes because their value lies in retained data, stable identity, and ordered startup. Using stateful objects for those components keeps the platform honest about persistence, even though the challenge scope is only single-node.
+- `ConfigMap` resources are used for the parts of the platform that are configuration or content rather than secrets: app environment, PostgreSQL extended settings, Alloy relabeling config, the Grafana dashboard JSON, and the Loki ruler file. That keeps the operational narrative easy to inspect with `kubectl` and matches the fact that these artifacts are intended to be reviewed and explained during a demo.
+- `Secret` resources are used where credentials actually cross boundaries: Grafana admin credentials, PostgreSQL passwords, and the app's DB password source. The parent chart keeps that contract narrow so that secrets are present where needed without making every configuration input sensitive by default.
+- The schema initializer is a `Job` wired as a Helm hook because schema setup is part of release lifecycle rather than an always-running workload. That object type matches idempotent one-shot work much better than burying SQL inside application startup or trying to stretch an init container across chart boundaries.
+- `ServiceMonitor` resources are used because the monitoring stack is operator-driven and the platform wants scrape intent to be declared next to the workloads being scraped. That is simpler and more reviewable than hand-editing Prometheus scrape configs.
+- The slow-query rule and dashboard are delivered as chart-managed config resources rather than runtime-created assets. That keeps the alerting and visualization contract versioned with the chart and makes release-to-release changes inspectable.
+
+Tradeoffs
+- Standard objects are easy to reason about, but they still produce a sizable rendered manifest set once mature subcharts are involved.
+- Some platform behavior, especially around Grafana and Loki sidecars, depends on upstream object conventions that are not obvious until you inspect the rendered output.
+
+Alternatives considered
+- Pushing more behavior into custom application startup logic.
+- Replacing chart-managed config resources with manual post-install setup inside the cluster.
+- Using operators for more of the stack, especially around database lifecycle.
+
+Production-hardening follow-up
+- Add stronger policy around rollout strategy, PodDisruptionBudgets, retention, and secret management while keeping the current object model as the base architecture.
 
 ## Keep observability online during default stop flow
 

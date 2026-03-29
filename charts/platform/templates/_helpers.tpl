@@ -67,6 +67,26 @@ platform.example.io/component: app
 {{- printf "%s-secret" (include "platform.app.fullname" .) -}}
 {{- end -}}
 
+{{- define "platform.app.dbPasswordSecretName" -}}
+{{- if .Values.app.secrets.existingSecret.name -}}
+{{- .Values.app.secrets.existingSecret.name -}}
+{{- else if .Values.app.secrets.databasePassword -}}
+{{- include "platform.app.secretName" . -}}
+{{- else -}}
+{{- include "platform.postgresql.secretName" . -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "platform.app.dbPasswordSecretKey" -}}
+{{- if .Values.app.secrets.existingSecret.name -}}
+{{- .Values.app.secrets.existingSecret.key -}}
+{{- else if .Values.app.secrets.databasePassword -}}
+POSTGRES_PASSWORD
+{{- else -}}
+{{- include "platform.postgresql.userPasswordKey" . -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "platform.dbInit.fullname" -}}
 {{- include "platform.componentFullname" (dict "context" . "name" "schema-init") -}}
 {{- end -}}

@@ -1,34 +1,71 @@
+# global.* applies shared chart metadata and cluster defaults across the parent-managed resources.
 global:
+  # global.platformName sets app.kubernetes.io/part-of on parent-managed resources.
   platformName: todo-platform
+  # global.storageClass is the default storage class for stateful components in this demo chart.
   storageClass: local-path
   imagePullSecrets: []
   labels: {}
 
+# ingress.* configures the customer-facing route to the FastAPI Service.
 ingress:
+  # ingress.enabled controls whether the app Ingress is rendered.
   enabled: true
+  # ingress.className selects the cluster ingress controller. Leave empty to use the cluster default.
   className: traefik
+  # ingress.host must be set when ingress.enabled=true.
   host: todo.platform.local
+  # ingress.path is the HTTP path routed to the app Service.
   path: /
   pathType: Prefix
   annotations: {}
   tls: []
 
+# app.* configures the FastAPI Deployment, Service, and app-owned config/secret resources.
 app:
+  # app.name seeds the chart's app-facing names and labels.
   name: todo-api
   replicas: 1
   image:
+    # app.image.repository and app.image.tag should point at an image built outside Helm.
     repository: platform/todo-api
     tag: dev
+    # app.image.pullPolicy should be Never for locally imported images and pull-enabled for registry flows.
     pullPolicy: IfNotPresent
   containerPort: 8000
   service:
+    # app.service.port is the Ingress-facing Service port.
     type: ClusterIP
     port: 80
   env:
     logLevel: info
     dbConnectTimeoutSeconds: 5
+  # app.podAnnotations adds annotations to the FastAPI Pod template.
+  podAnnotations: {}
+  # app.podLabels adds extra labels to the FastAPI Pod template without changing selectors.
+  podLabels: {}
+  # app.podSecurityContext applies Pod-level security settings to the FastAPI workload.
+  podSecurityContext: {}
+  # app.securityContext applies container-level security settings to the FastAPI container.
+  securityContext: {}
+  # app.nodeSelector, app.tolerations, and app.affinity provide standard scheduling overrides.
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  # app.extraEnv appends raw env entries to the FastAPI container.
   extraEnv: []
+  # app.secretEnv renders extra key/value pairs into the chart-managed app Secret.
   secretEnv: {}
+  secrets:
+    # app.secrets.databasePassword copies an explicit DB password into the chart-managed app Secret.
+    # Leave this empty to keep using the shared PostgreSQL secret path.
+    databasePassword: ""
+    existingSecret:
+      # app.secrets.existingSecret lets the app read POSTGRES_PASSWORD from another Secret/key.
+      # Use this only when that Secret contains the same application-user password PostgreSQL expects.
+      name: ""
+      key: ""
+  # app.resources sizes the FastAPI container.
   resources:
     requests:
       cpu: 100m
@@ -37,6 +74,7 @@ app:
       cpu: 500m
       memory: 512Mi
 
+# postgresql.* mostly passes through to the Bitnami PostgreSQL subchart.
 postgresql:
   enabled: true
   commonLabels:
@@ -45,17 +83,19 @@ postgresql:
   image:
     registry: registry-1.docker.io
     repository: bitnami/postgresql
-    tag: "18.3.0"
+    # postgresql.image.tag stays on latest because the chart appVersion is not a guaranteed Docker tag.
+    tag: latest
   architecture: standalone
   auth:
     enablePostgresUser: true
-    # Shared DB credential contract: set this secret name or auth.password below.
-    # The parent chart validates this path because the FastAPI app reads the same app-user secret.
+    # postgresql.auth.existingSecret points PostgreSQL at a pre-created Secret.
+    # The chart also uses this as the default app DB password source unless app.secrets overrides it.
     existingSecret: ""
-    # Subchart-local/admin credential. If unset, upstream Bitnami PostgreSQL behavior applies.
+    # postgresql.auth.postgresPassword is the admin/superuser credential passed through to Bitnami.
     postgresPassword: ""
+    # postgresql.auth.username and postgresql.auth.database define the shared app database identity.
     username: todoapp
-    # Shared DB credential contract: set this password or auth.existingSecret above.
+    # postgresql.auth.password sets the shared app-user password when you are not using an existing Secret.
     password: ""
     database: todoapp
   primary:
@@ -70,6 +110,8 @@ postgresql:
       limits:
         cpu: "1"
         memory: 1Gi
+    # postgresql.primary.extendedConfiguration enables pg_stat_statements and slow-query logging.
+    # The PostgreSQL dashboard and Loki alert path both depend on these settings staying enabled.
     extendedConfiguration: |-
       shared_preload_libraries = 'pg_stat_statements'
       log_destination = 'stderr'
@@ -107,6 +149,7 @@ postgresql:
               usage: COUNTER
               description: Total SQL execution time recorded by pg_stat_statements in seconds
 
+# monitoring.* mostly passes through to kube-prometheus-stack, plus the parent chart's slow-query alert settings.
 monitoring:
   enabled: true
   commonLabels:
@@ -138,7 +181,17 @@ monitoring:
       ruleSelectorNilUsesHelmValues: false
       serviceMonitorSelectorNilUsesHelmValues: false
       podMonitorSelectorNilUsesHelmValues: false
+  slowQueryAlert:
+    # monitoring.slowQueryAlert toggles the parent chart's Loki ruler rule for PostgreSQL slow-query logs.
+    enabled: true
+    # monitoring.slowQueryAlert.threshold counts matching log lines over the query window.
+    threshold: 3
+    # monitoring.slowQueryAlert.window is a simple LogQL range duration such as 10m or 1h.
+    window: 10m
+    # monitoring.slowQueryAlert.for is the alert hold time before firing.
+    for: 0m
 
+# loki.* mostly passes through to the Loki subchart.
 loki:
   enabled: true
   commonLabels:
@@ -209,11 +262,8 @@ loki:
       folderAnnotation: k8s-sidecar-target-directory
   test:
     enabled: false
-  slowQueryAlert:
-    threshold: 3
-    window: 10m
-    for: 0m
 
+# alloy.* mostly passes through to the Alloy subchart.
 alloy:
   enabled: true
   controller:
@@ -236,6 +286,12 @@ alloy:
         cpu: 250m
         memory: 256Mi
     configMap:
+      # alloy.configMap.content relabels Kubernetes metadata into Loki labels.
+      # The slow-query alert depends on PostgreSQL logs arriving as
+      # {namespace="<release namespace>", app="postgresql", container="postgresql"}.
+      # That is stable in this chart because the Bitnami PostgreSQL pods keep
+      # app.kubernetes.io/name=postgresql and their primary container name=postgresql
+      # unless the subchart labels or relabel rules are intentionally changed.
       content: |-
         logging {
           level  = "info"
