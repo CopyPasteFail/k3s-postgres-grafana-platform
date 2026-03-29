@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: todo-schema-init
+  name: {{ include "platform.dbInit.fullname" . }}
   labels:
     {{- include "platform.labels" . | nindent 4 }}
     platform.example.io/component: db-init

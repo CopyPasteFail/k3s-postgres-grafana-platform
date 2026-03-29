@@ -2,11 +2,23 @@
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-platform}"
-APP_DEPLOYMENT="${APP_DEPLOYMENT:-todo-api}"
-POSTGRES_STATEFULSET="${POSTGRES_STATEFULSET:-postgresql}"
+RELEASE="${RELEASE:-platform}"
 APP_REPLICAS="${APP_REPLICAS:-1}"
 POSTGRES_REPLICAS="${POSTGRES_REPLICAS:-1}"
 REPLICA_ANNOTATION="${REPLICA_ANNOTATION:-platform.example.io/original-replicas}"
+
+release_name() {
+  local suffix="$1"
+
+  if [[ "$RELEASE" == *"$suffix"* ]]; then
+    printf '%s' "$RELEASE"
+  else
+    printf '%s-%s' "$RELEASE" "$suffix"
+  fi
+}
+
+APP_DEPLOYMENT="${APP_DEPLOYMENT:-$(release_name "todo-api")}"
+POSTGRES_STATEFULSET="${POSTGRES_STATEFULSET:-$(release_name "postgresql")}"
 
 require_namespace() {
   kubectl get namespace "$NAMESPACE" >/dev/null

@@ -4,9 +4,6 @@ global:
   imagePullSecrets: []
   labels: {}
 
-namespace:
-  name: platform
-
 ingress:
   enabled: true
   className: traefik
@@ -42,21 +39,24 @@ app:
 
 postgresql:
   enabled: true
-  fullnameOverride: postgresql
   commonLabels:
     platform.example.io/component: postgresql
     platform.example.io/tier: workload
   image:
     registry: registry-1.docker.io
     repository: bitnami/postgresql
-    tag: latest
+    tag: "18.3.0"
   architecture: standalone
   auth:
     enablePostgresUser: true
+    # Shared DB credential contract: set this secret name or auth.password below.
+    # The parent chart validates this path because the FastAPI app reads the same app-user secret.
     existingSecret: ""
-    postgresPassword: CHANGE_ME_POSTGRES_PASSWORD
+    # Subchart-local/admin credential. If unset, upstream Bitnami PostgreSQL behavior applies.
+    postgresPassword: ""
     username: todoapp
-    password: CHANGE_ME_APP_PASSWORD
+    # Shared DB credential contract: set this password or auth.existingSecret above.
+    password: ""
     database: todoapp
   primary:
     persistence:
@@ -109,7 +109,6 @@ postgresql:
 
 monitoring:
   enabled: true
-  fullnameOverride: monitoring
   commonLabels:
     platform.example.io/component: monitoring
     platform.example.io/tier: observability
@@ -118,7 +117,8 @@ monitoring:
   grafana:
     enabled: true
     defaultDashboardsEnabled: false
-    adminPassword: CHANGE_ME_GRAFANA_ADMIN_PASSWORD
+    # Subchart-local credential. If unset, upstream kube-prometheus-stack/Grafana behavior applies.
+    adminPassword: ""
     sidecar:
       dashboards:
         enabled: true
@@ -141,10 +141,11 @@ monitoring:
 
 loki:
   enabled: true
-  fullnameOverride: loki
   commonLabels:
     platform.example.io/component: loki
     platform.example.io/tier: observability
+  configObjectName: '{{ include "loki.fullname" . }}'
+  generatedConfigObjectName: '{{ include "loki.fullname" . }}'
   deploymentMode: SingleBinary
   write:
     replicas: 0
@@ -191,7 +192,7 @@ loki:
     rulerConfig:
       enable_api: true
       enable_alertmanager_v2: true
-      alertmanager_url: http://monitoring-alertmanager:9093
+      alertmanager_url: http://{{ if contains "monitoring" .Release.Name }}{{ .Release.Name }}{{ else }}{{ printf "%s-monitoring" .Release.Name }}{{ end }}-alertmanager:9093
       rule_path: /tmp/loki/rules-temp
       storage:
         type: local
@@ -215,7 +216,6 @@ loki:
 
 alloy:
   enabled: true
-  fullnameOverride: alloy
   controller:
     type: deployment
     replicas: 1
@@ -309,6 +309,6 @@ alloy:
 
         loki.write "default" {
           endpoint {
-            url = "http://loki.{{ .Release.Namespace }}.svc.cluster.local:3100/loki/api/v1/push"
+            url = "http://{{ if contains "loki" .Release.Name }}{{ .Release.Name }}{{ else }}{{ printf "%s-loki" .Release.Name }}{{ end }}.{{ .Release.Namespace }}.svc.cluster.local:3100/loki/api/v1/push"
           }
         }

@@ -203,8 +203,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Platform PostgreSQL Overview",
-  "uid": "platform-postgresql-overview",
+  "title": "{{ .Release.Name }} PostgreSQL Overview",
+  "uid": "{{ include "platform.grafanaDashboard.uid" . }}",
   "version": 1,
   "weekStart": ""
 }

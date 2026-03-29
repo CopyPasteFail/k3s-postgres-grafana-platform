@@ -2,9 +2,21 @@
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-platform}"
-GRAFANA_SERVICE="${GRAFANA_SERVICE:-monitoring-grafana}"
-GRAFANA_SECRET="${GRAFANA_SECRET:-monitoring-grafana}"
+RELEASE="${RELEASE:-platform}"
 LOCAL_PORT="${LOCAL_PORT:-3000}"
+
+release_name() {
+  local suffix="$1"
+
+  if [[ "$RELEASE" == *"$suffix"* ]]; then
+    printf '%s' "$RELEASE"
+  else
+    printf '%s-%s' "$RELEASE" "$suffix"
+  fi
+}
+
+GRAFANA_SERVICE="${GRAFANA_SERVICE:-$(release_name "grafana")}"
+GRAFANA_SECRET="${GRAFANA_SECRET:-$GRAFANA_SERVICE}"
 
 if kubectl -n "$NAMESPACE" get secret "$GRAFANA_SECRET" >/dev/null 2>&1; then
   USERNAME="$(kubectl -n "$NAMESPACE" get secret "$GRAFANA_SECRET" -o jsonpath='{.data.admin-user}' | base64 -d)"

@@ -18,10 +18,10 @@ deploy: deps
 	helm upgrade --install $(RELEASE) $(CHART) -n $(NAMESPACE) --create-namespace $(VALUES)
 
 verify:
-	./scripts/verify.sh
+	RELEASE=$(RELEASE) NAMESPACE=$(NAMESPACE) ./scripts/verify.sh
 
 grafana:
-	./scripts/port-forward-grafana.sh
+	RELEASE=$(RELEASE) NAMESPACE=$(NAMESPACE) ./scripts/port-forward-grafana.sh
 
 build-app:
 	docker build -t platform/todo-api:dev app

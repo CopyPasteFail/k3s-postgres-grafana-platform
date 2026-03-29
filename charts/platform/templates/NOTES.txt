@@ -10,4 +10,4 @@ Grafana:
 Quick checks:
   kubectl -n {{ .Release.Namespace }} get pods
   kubectl -n {{ .Release.Namespace }} get ingress {{ include "platform.app.fullname" . }}
-  kubectl -n {{ .Release.Namespace }} get configmap platform-postgresql-dashboard loki-slow-query-rules
+  kubectl -n {{ .Release.Namespace }} get configmap {{ include "platform.grafanaDashboard.configmapName" . }} {{ include "platform.loki.ruleConfigmapName" . }}

@@ -83,6 +83,10 @@ If you switch away from the local imported image flow, also override `app.image.
 
 ## Install steps
 
+The examples below assume `RELEASE=platform` and `NAMESPACE=platform`.
+Resource names now derive from the Helm release, so a different release name will produce a different prefix.
+The runtime namespace comes from Helm `-n/--namespace`; there is no separate namespace value to keep in sync.
+
 ### 1. Confirm the cluster is ready
 
 ```bash
@@ -104,21 +108,24 @@ This command:
 - downloads the dependency chart archives into `charts/platform/charts/`
 - makes sure the parent chart has the subcharts it needs before lint, template, or deploy
 
-### 3. Review or override deployment values
+### 3. Review the values files
 
-The baseline values are in:
+The chart keeps two intended inputs:
 
-- `charts/platform/values.yaml`
-- `charts/platform/values.dev.yaml`
+- `charts/platform/values.yaml` - a neutral base file with blank credential defaults.
+- `charts/platform/values.dev.yaml` - a convenient local/demo overlay.
 
 Important defaults in `values.dev.yaml`:
 
-- namespace: `platform`
 - ingress host: `todo.localtest.me`
 - app image: `platform/todo-api:dev`
 - demo passwords for PostgreSQL and Grafana
 
-### 4. Deploy the platform
+### 4. Choose an install path
+
+#### Local/dev install with `values.dev.yaml`
+
+`make deploy` still uses the local/demo overlay:
 
 ```bash
 make deploy
@@ -134,8 +141,42 @@ helm upgrade --install platform charts/platform \
   -f charts/platform/values.dev.yaml
 ```
 
-Helm merges these files in order.
-`values.yaml` provides the shared base configuration, and `values.dev.yaml` overrides only the local demo settings such as the ingress host, demo passwords, and local image behavior.
+#### Explicit value-based install
+
+```bash
+helm upgrade --install platform charts/platform \
+  -n platform \
+  --create-namespace \
+  -f charts/platform/values.yaml \
+  --set-string ingress.host=todo.example.local \
+  --set-string postgresql.auth.password=todoapp-demo-password \
+  --set-string postgresql.auth.postgresPassword=postgres-demo-password \
+  --set-string monitoring.grafana.adminPassword=admin-demo-password
+```
+
+#### Existing-secret based install
+
+Use the upstream PostgreSQL secret keys unless you intentionally override them:
+
+```bash
+kubectl -n platform create secret generic platform-db-creds \
+  --from-literal=postgres-password=postgres-demo-password \
+  --from-literal=password=todoapp-demo-password
+
+helm upgrade --install platform charts/platform \
+  -n platform \
+  --create-namespace \
+  -f charts/platform/values.yaml \
+  --set-string ingress.host=todo.example.local \
+  --set-string postgresql.auth.existingSecret=platform-db-creds \
+  --set-string monitoring.grafana.adminPassword=admin-demo-password
+```
+
+### Credential behavior
+
+- Parent-guarded shared credential: `postgresql.auth.password` or `postgresql.auth.existingSecret` must be set. Helm now fails early if neither is provided because the FastAPI app depends on that PostgreSQL application-user secret path.
+- Not parent-guarded: `postgresql.auth.postgresPassword` and `monitoring.grafana.adminPassword` are passed through to their subcharts. If they are unset, upstream chart behavior applies.
+- Upstream references: [Bitnami PostgreSQL values](https://github.com/bitnami/charts/blob/main/bitnami/postgresql/values.yaml), [kube-prometheus-stack values](https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml), [Grafana chart values](https://github.com/grafana/helm-charts/blob/main/charts/grafana/values.yaml)
 
 ## Preflight checks before demo
 
@@ -147,7 +188,7 @@ docker save platform/todo-api:dev | sudo k3s ctr images import -
 sudo k3s ctr images ls | grep 'platform/todo-api.*dev'
 ```
 
-- Deploy into the `platform` namespace. The Helm release namespace is the namespace that matters at runtime:
+- Deploy into the `platform` namespace. The Helm release namespace is the runtime source of truth:
 
 ```bash
 kubectl get ns platform
@@ -170,14 +211,14 @@ curl -I http://127.0.0.1:3000/login
 - Verify Prometheus sees the PostgreSQL and Alloy scrape targets:
 
 ```bash
-kubectl -n platform port-forward svc/monitoring-prometheus 9090:9090
+kubectl -n platform port-forward svc/platform-monitoring-prometheus 9090:9090
 curl -s 'http://127.0.0.1:9090/api/v1/targets?state=active' | grep -E 'postgresql|alloy'
 ```
 
 - Verify Loki is receiving PostgreSQL logs:
 
 ```bash
-kubectl -n platform port-forward svc/loki 3100:3100
+kubectl -n platform port-forward svc/platform-loki 3100:3100
 curl -G -s 'http://127.0.0.1:3100/loki/api/v1/query' \
   --data-urlencode 'query={namespace="platform",app="postgresql",container="postgresql"}'
 ```
@@ -185,8 +226,8 @@ curl -G -s 'http://127.0.0.1:3100/loki/api/v1/query' \
 - Force a slow query for dashboard and alert-path testing:
 
 ```bash
-POSTGRES_PASSWORD=$(kubectl -n platform get secret postgresql -o jsonpath='{.data.postgres-password}' | base64 -d)
-kubectl -n platform exec statefulset/postgresql -- \
+POSTGRES_PASSWORD=$(kubectl -n platform get secret platform-postgresql -o jsonpath='{.data.postgres-password}' | base64 -d)
+kubectl -n platform exec statefulset/platform-postgresql -- \
   env PGPASSWORD="$POSTGRES_PASSWORD" \
   psql -h 127.0.0.1 -U postgres -d todoapp -c 'SELECT pg_sleep(1.2);'
 ```
@@ -198,6 +239,8 @@ kubectl -n platform exec statefulset/postgresql -- \
 ```bash
 ./scripts/verify.sh
 ```
+
+> If you install with a different release or namespace, run `RELEASE=<release> NAMESPACE=<namespace> ./scripts/verify.sh`.
 
 This checks:
 
@@ -224,14 +267,16 @@ curl -H 'Host: todo.localtest.me' "http://$NODE_IP/healthz"
 ./scripts/port-forward-grafana.sh
 ```
 
+> If you install with a different release or namespace, run `RELEASE=<release> NAMESPACE=<namespace> ./scripts/port-forward-grafana.sh`.
+
 ## Testing slow query logging and alerting
 
 ### Generate 4 slow SQL statements
 
 ```bash
-POSTGRES_PASSWORD=$(kubectl -n platform get secret postgresql -o jsonpath='{.data.postgres-password}' | base64 -d)
+POSTGRES_PASSWORD=$(kubectl -n platform get secret platform-postgresql -o jsonpath='{.data.postgres-password}' | base64 -d)
 for i in 1 2 3 4; do
-  kubectl -n platform exec statefulset/postgresql -- \
+  kubectl -n platform exec statefulset/platform-postgresql -- \
     env PGPASSWORD="$POSTGRES_PASSWORD" \
     psql -h 127.0.0.1 -U postgres -d todoapp -c 'SELECT pg_sleep(1.2);'
 done
@@ -240,7 +285,7 @@ done
 ### Inspect the alert state through Loki
 
 ```bash
-kubectl -n platform port-forward svc/loki 3100:3100
+kubectl -n platform port-forward svc/platform-loki 3100:3100
 curl -s http://127.0.0.1:3100/prometheus/api/v1/alerts | jq .
 ```
 
