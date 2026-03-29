@@ -1,0 +1,314 @@
+global:
+  platformName: todo-platform
+  storageClass: local-path
+  imagePullSecrets: []
+  labels: {}
+
+namespace:
+  name: platform
+
+ingress:
+  enabled: true
+  className: traefik
+  host: todo.platform.local
+  path: /
+  pathType: Prefix
+  annotations: {}
+  tls: []
+
+app:
+  name: todo-api
+  replicas: 1
+  image:
+    repository: platform/todo-api
+    tag: dev
+    pullPolicy: IfNotPresent
+  containerPort: 8000
+  service:
+    type: ClusterIP
+    port: 80
+  env:
+    logLevel: info
+    dbConnectTimeoutSeconds: 5
+  extraEnv: []
+  secretEnv: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+postgresql:
+  enabled: true
+  fullnameOverride: postgresql
+  commonLabels:
+    platform.example.io/component: postgresql
+    platform.example.io/tier: workload
+  image:
+    registry: registry-1.docker.io
+    repository: bitnami/postgresql
+    tag: latest
+  architecture: standalone
+  auth:
+    enablePostgresUser: true
+    existingSecret: ""
+    postgresPassword: CHANGE_ME_POSTGRES_PASSWORD
+    username: todoapp
+    password: CHANGE_ME_APP_PASSWORD
+    database: todoapp
+  primary:
+    persistence:
+      enabled: true
+      storageClass: local-path
+      size: 8Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    extendedConfiguration: |-
+      shared_preload_libraries = 'pg_stat_statements'
+      log_destination = 'stderr'
+      logging_collector = off
+      log_line_prefix = '%m [%p] db=%d,user=%u,app=%a,client=%h '
+      log_min_duration_statement = 1000
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    customMetrics:
+      pg_stat_statements_rollup:
+        query: |
+          SELECT
+            current_database() AS datname,
+            COALESCE(sum(calls), 0)::double precision AS calls_total,
+            COALESCE(sum(total_exec_time), 0)::double precision / 1000.0 AS total_exec_time_seconds_total
+          FROM pg_stat_statements;
+        metrics:
+          - datname:
+              usage: LABEL
+              description: Current database name
+          - calls_total:
+              usage: COUNTER
+              description: Total SQL statements recorded by pg_stat_statements
+          - total_exec_time_seconds_total:
+              usage: COUNTER
+              description: Total SQL execution time recorded by pg_stat_statements in seconds
+
+monitoring:
+  enabled: true
+  fullnameOverride: monitoring
+  commonLabels:
+    platform.example.io/component: monitoring
+    platform.example.io/tier: observability
+  defaultRules:
+    create: true
+  grafana:
+    enabled: true
+    defaultDashboardsEnabled: false
+    adminPassword: CHANGE_ME_GRAFANA_ADMIN_PASSWORD
+    sidecar:
+      dashboards:
+        enabled: true
+        label: grafana_dashboard
+        labelValue: "1"
+        searchNamespace: ALL
+      datasources:
+        enabled: true
+        defaultDatasourceEnabled: true
+        isDefaultDatasource: true
+        name: Prometheus
+        uid: prometheus
+  alertmanager:
+    enabled: true
+  prometheus:
+    prometheusSpec:
+      ruleSelectorNilUsesHelmValues: false
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+
+loki:
+  enabled: true
+  fullnameOverride: loki
+  commonLabels:
+    platform.example.io/component: loki
+    platform.example.io/tier: observability
+  deploymentMode: SingleBinary
+  write:
+    replicas: 0
+  read:
+    replicas: 0
+  backend:
+    replicas: 0
+  gateway:
+    enabled: false
+  lokiCanary:
+    enabled: false
+  resultsCache:
+    enabled: false
+  chunksCache:
+    enabled: false
+  singleBinary:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    persistence:
+      enabled: true
+      storageClass: local-path
+      size: 10Gi
+  loki:
+    auth_enabled: false
+    commonConfig:
+      replication_factor: 1
+    storage:
+      type: filesystem
+    schemaConfig:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    rulerConfig:
+      enable_api: true
+      enable_alertmanager_v2: true
+      alertmanager_url: http://monitoring-alertmanager:9093
+      rule_path: /tmp/loki/rules-temp
+      storage:
+        type: local
+        local:
+          directory: /rules
+  ruler:
+    enabled: true
+  sidecar:
+    rules:
+      enabled: true
+      label: loki_rule
+      labelValue: "1"
+      folder: /rules
+      folderAnnotation: k8s-sidecar-target-directory
+  test:
+    enabled: false
+  slowQueryAlert:
+    threshold: 3
+    window: 10m
+    for: 0m
+
+alloy:
+  enabled: true
+  fullnameOverride: alloy
+  controller:
+    type: deployment
+    replicas: 1
+    extraLabels:
+      platform.example.io/component: alloy
+      platform.example.io/tier: observability
+    podLabels:
+      platform.example.io/component: alloy
+      platform.example.io/tier: observability
+  serviceMonitor:
+    enabled: true
+  alloy:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    configMap:
+      content: |-
+        logging {
+          level  = "info"
+          format = "logfmt"
+        }
+
+        discovery.kubernetes "pods" {
+          role = "pod"
+        }
+
+        discovery.relabel "platform_pods" {
+          targets = discovery.kubernetes.pods.targets
+
+          rule {
+            source_labels = ["__meta_kubernetes_namespace"]
+            action        = "keep"
+            regex         = "{{ .Release.Namespace }}"
+          }
+
+          rule {
+            source_labels = ["__meta_kubernetes_pod_phase"]
+            action        = "keep"
+            regex         = "Running"
+          }
+
+          rule {
+            source_labels = ["__meta_kubernetes_namespace"]
+            target_label  = "namespace"
+          }
+
+          rule {
+            source_labels = ["__meta_kubernetes_pod_name"]
+            target_label  = "pod"
+          }
+
+          rule {
+            source_labels = ["__meta_kubernetes_pod_container_name"]
+            target_label  = "container"
+          }
+
+          rule {
+            source_labels = ["__meta_kubernetes_pod_node_name"]
+            target_label  = "node"
+          }
+
+          rule {
+            source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+            target_label  = "app"
+          }
+
+          rule {
+            source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+            target_label  = "component"
+          }
+
+          rule {
+            source_labels = ["__meta_kubernetes_pod_controller_kind"]
+            target_label  = "workload_kind"
+          }
+
+          rule {
+            source_labels = ["__meta_kubernetes_pod_controller_name"]
+            target_label  = "workload"
+          }
+        }
+
+        loki.source.kubernetes "platform_pods" {
+          targets    = discovery.relabel.platform_pods.output
+          forward_to = [loki.write.default.receiver]
+        }
+
+        loki.write "default" {
+          endpoint {
+            url = "http://loki.{{ .Release.Namespace }}.svc.cluster.local:3100/loki/api/v1/push"
+          }
+        }

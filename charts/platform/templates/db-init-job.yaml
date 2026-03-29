@@ -1,0 +1,82 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: todo-schema-init
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+    platform.example.io/component: db-init
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "platform.labels" . | nindent 8 }}
+        platform.example.io/component: db-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: {{ printf "%s/%s:%s" .Values.postgresql.image.registry .Values.postgresql.image.repository .Values.postgresql.image.tag | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_HOST
+              value: {{ include "platform.postgresql.serviceName" . | quote }}
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.auth.database | quote }}
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "platform.postgresql.secretName" . }}
+                  key: {{ include "platform.postgresql.adminPasswordKey" . }}
+            - name: APP_DB_USER
+              value: {{ .Values.postgresql.auth.username | quote }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              export PGPASSWORD="$POSTGRES_PASSWORD"
+              timeout_seconds=300
+              deadline=$((SECONDS + timeout_seconds))
+
+              # Wait for both the TCP endpoint and a real SQL round-trip so the hook
+              # does not race a cold PostgreSQL startup on a fresh cluster.
+              until \
+                pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1 && \
+                psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc 'SELECT 1' >/dev/null 2>&1; do
+                if (( SECONDS >= deadline )); then
+                  echo "timed out waiting for postgresql readiness after ${timeout_seconds}s" >&2
+                  exit 1
+                fi
+                echo "waiting for postgresql to accept SQL connections..."
+                sleep 5
+              done
+
+              echo "postgresql is ready; applying idempotent schema SQL"
+              psql \
+                -v ON_ERROR_STOP=1 \
+                -h "$POSTGRES_HOST" \
+                -p "$POSTGRES_PORT" \
+                -U "$POSTGRES_USER" \
+                -d "$POSTGRES_DB" <<SQL
+              CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+              CREATE TABLE IF NOT EXISTS public.todos (
+                  id BIGSERIAL PRIMARY KEY,
+                  title TEXT NOT NULL,
+                  completed BOOLEAN NOT NULL DEFAULT FALSE,
+                  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+              );
+
+              ALTER TABLE public.todos OWNER TO "$APP_DB_USER";
+              GRANT SELECT, INSERT, UPDATE ON TABLE public.todos TO "$APP_DB_USER";
+              GRANT USAGE, SELECT ON SEQUENCE public.todos_id_seq TO "$APP_DB_USER";
+              SQL

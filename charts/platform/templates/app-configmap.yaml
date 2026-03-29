@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "platform.app.configmapName" . }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+    {{- include "platform.selectorLabels" . | nindent 4 }}
+data:
+  APP_LOG_LEVEL: {{ .Values.app.env.logLevel | quote }}
+  POSTGRES_HOST: {{ include "platform.postgresql.serviceName" . | quote }}
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: {{ .Values.postgresql.auth.database | quote }}
+  POSTGRES_USER: {{ .Values.postgresql.auth.username | quote }}
+  POSTGRES_CONNECT_TIMEOUT_SECONDS: {{ .Values.app.env.dbConnectTimeoutSeconds | quote }}

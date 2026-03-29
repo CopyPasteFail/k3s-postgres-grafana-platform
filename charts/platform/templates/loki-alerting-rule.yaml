@@ -1,0 +1,31 @@
+{{- if and .Values.loki.enabled .Values.loki.ruler.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-slow-query-rules
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+    loki_rule: "1"
+  annotations:
+    k8s-sidecar-target-directory: /rules
+data:
+  postgresql-slow-query-alert.yaml: |
+    groups:
+      - name: postgresql-slow-query-log-alerts
+        interval: 1m
+        rules:
+          - alert: PostgreSQLSlowQueryBurst
+            expr: |
+              sum(
+                count_over_time(
+                  {namespace="{{ .Release.Namespace }}", app="postgresql", container="postgresql"} |= "duration:" |= "statement:" [{{ .Values.loki.slowQueryAlert.window }}]
+                )
+              ) > {{ .Values.loki.slowQueryAlert.threshold }}
+            for: {{ .Values.loki.slowQueryAlert.for }}
+            labels:
+              severity: warning
+              service: postgresql
+            annotations:
+              summary: PostgreSQL logged repeated slow SQL statements
+              description: More than {{ .Values.loki.slowQueryAlert.threshold }} SQL statements slower than one second were logged within {{ .Values.loki.slowQueryAlert.window }}.
+{{- end }}

@@ -1,0 +1,22 @@
+namespace:
+  name: platform
+
+ingress:
+  host: todo.localtest.me
+
+app:
+  image:
+    repository: platform/todo-api
+    tag: dev
+    pullPolicy: Never
+
+postgresql:
+  auth:
+    postgresPassword: postgres-dev-password
+    username: todoapp
+    password: todoapp-dev-password
+    database: todoapp
+
+monitoring:
+  grafana:
+    adminPassword: admin-dev-password

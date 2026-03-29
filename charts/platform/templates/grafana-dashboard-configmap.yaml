@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-postgresql-dashboard
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  platform-postgresql-overview.json: |
+    {{- include "platform.grafanaDashboardDb" . | nindent 4 }}

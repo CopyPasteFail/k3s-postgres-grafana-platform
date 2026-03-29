@@ -1,0 +1,43 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.python-version
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environment and local overrides
+.env
+.env.*
+*.local
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Helm dependency archives
+charts/*/charts/*.tgz
+
+# Generated render/debug output
+*.log
+*.out
+*.tmp
+
+# Terraform and misc future tooling
+.terraform/
+*.tfstate
+*.tfstate.*

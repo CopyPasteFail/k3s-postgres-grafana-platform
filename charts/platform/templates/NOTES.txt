@@ -1,0 +1,13 @@
+Platform release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+App ingress:
+  http://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+
+Grafana:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "platform.monitoring.grafanaService" . }} 3000:80
+
+Quick checks:
+  kubectl -n {{ .Release.Namespace }} get pods
+  kubectl -n {{ .Release.Namespace }} get ingress {{ include "platform.app.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} get configmap platform-postgresql-dashboard loki-slow-query-rules

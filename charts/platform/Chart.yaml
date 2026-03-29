@@ -1,0 +1,25 @@
+apiVersion: v2
+name: platform
+description: Parent Helm chart for the k3s PostgreSQL, observability, and demo app platform.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+dependencies:
+  - name: postgresql
+    version: 18.5.14
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: postgresql.enabled
+  - name: kube-prometheus-stack
+    alias: monitoring
+    version: 82.15.1
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: monitoring.enabled
+  - name: loki
+    version: 9.3.5
+    repository: https://grafana-community.github.io/helm-charts
+    condition: loki.enabled
+  - name: alloy
+    version: 1.6.2
+    repository: https://grafana.github.io/helm-charts
+    condition: alloy.enabled
